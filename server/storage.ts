@@ -599,46 +599,162 @@ export class MongoDBStorage implements IStorage {
     });
   }
 
+  // Helper function to convert MongoDB user document to User type
+  private mapUserFromMongo(user: any): User {
+    if (!user) return undefined;
+    
+    return {
+      id: parseInt(user._id.toString().substring(0, 8), 16), // Generate numeric ID from MongoDB ObjectId
+      username: user.username,
+      email: user.email,
+      password: user.password,
+      fullName: user.fullName || '',
+      profileImage: user.profileImage,
+      bio: user.bio,
+      role: user.role,
+      rating: user.rating || 0,
+      pricing: user.pricing || 0,
+      pricingChat: user.pricingChat || 0,
+      pricingVoice: user.pricingVoice || 0,
+      pricingVideo: user.pricingVideo || 0,
+      specialties: user.specialties || [],
+      isOnline: user.isOnline || false,
+      isAvailable: user.isAvailable || false,
+      isVerified: user.isVerified || false,
+      lastSeen: user.lastSeen || null,
+      stripeCustomerId: user.stripeCustomerId || null,
+      stripeConnectId: user.stripeConnectId || null,
+      createdAt: user.createdAt || new Date(),
+      updatedAt: user.updatedAt || new Date(),
+      timezone: user.timezone || 'UTC',
+      notificationPreferences: user.notificationPreferences || {},
+      emailVerified: user.emailVerified || false,
+      accountBalance: user.accountBalance || 0,
+      lastActive: user.lastActive || null,
+      reviewCount: user.reviewCount || 0
+    };
+  }
+
   // User methods
   async getUser(id: number): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user;
+    try {
+      log(`Getting user with ID ${id} from MongoDB`, 'storage');
+      
+      // First try to find by our numeric ID
+      const users = await mongodb.User.find().lean();
+      const user = users.find(u => parseInt(u._id.toString().substring(0, 8), 16) === id);
+      
+      if (user) {
+        return this.mapUserFromMongo(user);
+      }
+      
+      return undefined;
+    } catch (error) {
+      log(`Error in MongoDB getUser: ${error}`, 'storage');
+      // Fallback to original implementation
+      const [user] = await db.select().from(users).where(eq(users.id, id));
+      return user;
+    }
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.username, username));
-    return user;
+    try {
+      log(`Getting user with username ${username} from MongoDB`, 'storage');
+      const user = await mongodb.User.findOne({ username }).lean();
+      return this.mapUserFromMongo(user);
+    } catch (error) {
+      log(`Error in MongoDB getUserByUsername: ${error}`, 'storage');
+      // Fallback to original implementation
+      const [user] = await db.select().from(users).where(eq(users.username, username));
+      return user;
+    }
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.email, email));
-    return user;
+    try {
+      log(`Getting user with email ${email} from MongoDB`, 'storage');
+      const user = await mongodb.User.findOne({ email }).lean();
+      return this.mapUserFromMongo(user);
+    } catch (error) {
+      log(`Error in MongoDB getUserByEmail: ${error}`, 'storage');
+      // Fallback to original implementation
+      const [user] = await db.select().from(users).where(eq(users.email, email));
+      return user;
+    }
   }
 
   async createUser(user: InsertUser): Promise<User> {
-    const now = new Date();
-    const [createdUser] = await db.insert(users).values({
-      ...user,
-      createdAt: now,
-      lastActive: now,
-      isOnline: false,
-      reviewCount: 0,
-      accountBalance: 0,
-      squareCustomerId: null,
-      stripeCustomerId: null
-    }).returning();
-
-    return createdUser;
+    try {
+      log(`Creating new user in MongoDB: ${user.username}`, 'storage');
+      
+      const newUser = new mongodb.User({
+        ...user,
+        isOnline: false,
+        isVerified: false,
+        reviewCount: 0,
+        accountBalance: 0,
+        stripeCustomerId: null,
+        stripeConnectId: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        lastActive: new Date()
+      });
+      
+      const savedUser = await newUser.save();
+      return this.mapUserFromMongo(savedUser);
+    } catch (error) {
+      log(`Error in MongoDB createUser: ${error}`, 'storage');
+      // Fallback to original implementation
+      const now = new Date();
+      const [createdUser] = await db.insert(users).values({
+        ...user,
+        createdAt: now,
+        lastActive: now,
+        isOnline: false,
+        reviewCount: 0,
+        accountBalance: 0,
+        stripeCustomerId: null
+      }).returning();
+      
+      return createdUser;
+    }
   }
 
   async updateUser(id: number, userData: UserUpdate): Promise<User | undefined> {
-    const lastActive = userData.lastActive || new Date();
-    const [updatedUser] = await db.update(users)
-      .set({ ...userData, lastActive })
-      .where(eq(users.id, id))
-      .returning();
-
-    return updatedUser;
+    try {
+      log(`Updating user with ID ${id} in MongoDB`, 'storage');
+      
+      // First find the user by our numeric ID
+      const users = await mongodb.User.find().lean();
+      const user = users.find(u => parseInt(u._id.toString().substring(0, 8), 16) === id);
+      
+      if (!user) {
+        throw new Error(`User with ID ${id} not found in MongoDB`);
+      }
+      
+      // Update the user with the MongoDB ObjectId
+      const updatedUser = await mongodb.User.findByIdAndUpdate(
+        user._id,
+        { 
+          ...userData,
+          updatedAt: new Date(),
+          lastActive: userData.lastActive || new Date()
+        },
+        { new: true }
+      ).lean();
+      
+      return this.mapUserFromMongo(updatedUser);
+    } catch (error) {
+      log(`Error in MongoDB updateUser: ${error}`, 'storage');
+      // Fallback to original implementation
+      const lastActive = userData.lastActive || new Date();
+      const [updatedUser] = await db.update(users)
+        .set({ ...userData, lastActive })
+        .where(eq(users.id, id))
+        .returning();
+      
+      return updatedUser;
+    }
   }
 
   async getReaders(): Promise<User[]> {
@@ -684,42 +800,171 @@ export class MongoDBStorage implements IStorage {
     return await db.select().from(users);
   }
 
+  // Helper function to convert MongoDB reading document to Reading type
+  private mapReadingFromMongo(reading: any): Reading {
+    if (!reading) return undefined;
+    
+    return {
+      id: parseInt(reading._id.toString().substring(0, 8), 16),
+      clientId: parseInt(reading.clientId.toString().substring(0, 8), 16),
+      readerId: parseInt(reading.readerId.toString().substring(0, 8), 16),
+      type: reading.type,
+      status: reading.status,
+      notes: reading.notes,
+      rating: reading.rating,
+      review: reading.review,
+      duration: reading.duration || 0,
+      totalAmount: reading.totalAmount || 0,
+      roomId: reading.roomId,
+      scheduledFor: reading.scheduledAt || null,
+      createdAt: reading.createdAt || new Date(),
+      startedAt: reading.startedAt || null,
+      completedAt: reading.completedAt || null,
+      totalPrice: reading.totalAmount || null,
+      paymentStatus: reading.paymentStatus || "pending",
+      paymentId: reading.paymentId || null,
+      paymentLinkUrl: reading.paymentLinkUrl || null,
+      stripeCustomerId: reading.stripeCustomerId || null,
+      pricePerMinute: reading.pricePerMinute || 0
+    };
+  }
+  
   // Reading methods
   async createReading(reading: InsertReading): Promise<Reading> {
-    const [createdReading] = await db.insert(readings).values({
-      ...reading,
-      duration: reading.duration ?? null,
-      createdAt: new Date(),
-      completedAt: null,
-      rating: null,
-      review: null,
-      scheduledFor: reading.scheduledFor ?? null,
-      notes: reading.notes ?? null,
-      startedAt: null,
-      totalPrice: null,
-      paymentStatus: "pending",
-      paymentId: null,
-      paymentLinkUrl: null
-    }).returning();
-
-    return createdReading;
+    try {
+      log(`Creating new reading in MongoDB between reader ${reading.readerId} and client ${reading.clientId}`, 'storage');
+      
+      // First, find reader and client in MongoDB to get their ObjectIds
+      const users = await mongodb.User.find().lean();
+      const reader = users.find(u => parseInt(u._id.toString().substring(0, 8), 16) === reading.readerId);
+      const client = users.find(u => parseInt(u._id.toString().substring(0, 8), 16) === reading.clientId);
+      
+      if (!reader || !client) {
+        throw new Error('Reader or client not found in MongoDB');
+      }
+      
+      const newReading = new mongodb.Reading({
+        clientId: client._id,
+        readerId: reader._id,
+        type: reading.type,
+        status: reading.status || 'requested',
+        notes: reading.notes || null,
+        rating: null,
+        review: null,
+        duration: reading.duration || 0,
+        totalAmount: 0,
+        roomId: reading.roomId || `session_${Math.random().toString(36).substring(2, 15)}`,
+        scheduledAt: reading.scheduledFor || null,
+        completedAt: null,
+        clientNotes: reading.clientNotes || null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        startedAt: null,
+        paymentStatus: "pending",
+        paymentId: null,
+        paymentLinkUrl: null,
+        pricePerMinute: reading.pricePerMinute || 0
+      });
+      
+      const savedReading = await newReading.save();
+      return this.mapReadingFromMongo(savedReading);
+    } catch (error) {
+      log(`Error in MongoDB createReading: ${error}`, 'storage');
+      // Fallback to original implementation
+      const [createdReading] = await db.insert(readings).values({
+        ...reading,
+        duration: reading.duration ?? null,
+        createdAt: new Date(),
+        completedAt: null,
+        rating: null,
+        review: null,
+        scheduledFor: reading.scheduledFor ?? null,
+        notes: reading.notes ?? null,
+        startedAt: null,
+        totalPrice: null,
+        paymentStatus: "pending",
+        paymentId: null,
+        paymentLinkUrl: null
+      }).returning();
+      
+      return createdReading;
+    }
   }
 
   async getReading(id: number): Promise<Reading | undefined> {
-    const [reading] = await db.select().from(readings).where(eq(readings.id, id));
-    return reading;
+    try {
+      log(`Getting reading with ID ${id} from MongoDB`, 'storage');
+      
+      // Find by our numeric ID
+      const allReadings = await mongodb.Reading.find().lean();
+      const reading = allReadings.find(r => parseInt(r._id.toString().substring(0, 8), 16) === id);
+      
+      if (reading) {
+        return this.mapReadingFromMongo(reading);
+      }
+      
+      return undefined;
+    } catch (error) {
+      log(`Error in MongoDB getReading: ${error}`, 'storage');
+      // Fallback to original implementation
+      const [reading] = await db.select().from(readings).where(eq(readings.id, id));
+      return reading;
+    }
   }
   
   async getReadings(): Promise<Reading[]> {
-    return await db.select().from(readings);
+    try {
+      log('Fetching all readings from MongoDB', 'storage');
+      const allReadings = await mongodb.Reading.find().lean();
+      
+      return allReadings.map(reading => this.mapReadingFromMongo(reading));
+    } catch (error) {
+      log(`Error fetching readings from MongoDB: ${error}`, 'storage');
+      // Fallback to original implementation
+      return await db.select().from(readings);
+    }
   }
 
   async getReadingsByClient(clientId: number): Promise<Reading[]> {
-    return await db.select().from(readings).where(eq(readings.clientId, clientId));
+    try {
+      log(`Fetching readings for client ${clientId} from MongoDB`, 'storage');
+      
+      // First find client in MongoDB to get their ObjectId
+      const users = await mongodb.User.find().lean();
+      const client = users.find(u => parseInt(u._id.toString().substring(0, 8), 16) === clientId);
+      
+      if (!client) {
+        throw new Error(`Client with ID ${clientId} not found in MongoDB`);
+      }
+      
+      const clientReadings = await mongodb.Reading.find({ clientId: client._id }).lean();
+      return clientReadings.map(reading => this.mapReadingFromMongo(reading));
+    } catch (error) {
+      log(`Error fetching client readings from MongoDB: ${error}`, 'storage');
+      // Fallback to original implementation
+      return await db.select().from(readings).where(eq(readings.clientId, clientId));
+    }
   }
 
   async getReadingsByReader(readerId: number): Promise<Reading[]> {
-    return await db.select().from(readings).where(eq(readings.readerId, readerId));
+    try {
+      log(`Fetching readings for reader ${readerId} from MongoDB`, 'storage');
+      
+      // First find reader in MongoDB to get their ObjectId
+      const users = await mongodb.User.find().lean();
+      const reader = users.find(u => parseInt(u._id.toString().substring(0, 8), 16) === readerId);
+      
+      if (!reader) {
+        throw new Error(`Reader with ID ${readerId} not found in MongoDB`);
+      }
+      
+      const readerReadings = await mongodb.Reading.find({ readerId: reader._id }).lean();
+      return readerReadings.map(reading => this.mapReadingFromMongo(reading));
+    } catch (error) {
+      log(`Error fetching reader readings from MongoDB: ${error}`, 'storage');
+      // Fallback to original implementation
+      return await db.select().from(readings).where(eq(readings.readerId, readerId));
+    }
   }
 
   async updateReading(id: number, readingData: Partial<InsertReading> & {
@@ -732,12 +977,38 @@ export class MongoDBStorage implements IStorage {
     rating?: number | null;
     review?: string | null;
   }): Promise<Reading | undefined> {
-    const [updatedReading] = await db.update(readings)
-      .set(readingData)
-      .where(eq(readings.id, id))
-      .returning();
+    try {
+      log(`Updating reading with ID ${id} in MongoDB`, 'storage');
       
-    return updatedReading;
+      // Find reading by our numeric ID
+      const allReadings = await mongodb.Reading.find().lean();
+      const reading = allReadings.find(r => parseInt(r._id.toString().substring(0, 8), 16) === id);
+      
+      if (!reading) {
+        throw new Error(`Reading with ID ${id} not found in MongoDB`);
+      }
+      
+      // Update with MongoDB ObjectId
+      const updatedReading = await mongodb.Reading.findByIdAndUpdate(
+        reading._id,
+        { 
+          ...readingData,
+          updatedAt: new Date()
+        },
+        { new: true }
+      ).lean();
+      
+      return this.mapReadingFromMongo(updatedReading);
+    } catch (error) {
+      log(`Error updating reading in MongoDB: ${error}`, 'storage');
+      // Fallback to original implementation
+      const [updatedReading] = await db.update(readings)
+        .set(readingData)
+        .where(eq(readings.id, id))
+        .returning();
+        
+      return updatedReading;
+    }
   }
 
   // Product methods
