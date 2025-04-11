@@ -5,6 +5,9 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 // Additional connection options
 mongoose.set('strictQuery', false); // For deprecation warning
 
+// MongoDB connection string with fallback
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://emilynn:IsWhjH4vC6khOfrX@soulseerreplit.4czlq8o.mongodb.net/?retryWrites=true&w=majority&appName=SoulSeerReplit';
+
 // In-memory MongoDB server for development
 let mongoMemoryServer: MongoMemoryServer | null = null;
 
@@ -14,34 +17,15 @@ export async function connectToDatabase() {
     if (mongoose.connection.readyState !== 1) {
       log('Connecting to MongoDB...', 'database');
       
-      // Use in-memory server for development (prevents IP whitelist issues)
-      let uri;
-      if (process.env.NODE_ENV === 'production') {
-        // Production environment - use real MongoDB connection
-        uri = process.env.MONGODB_URI || '';
-        if (!uri) {
-          throw new Error('MONGODB_URI is not defined in production environment');
-        }
-      } else {
-        // Development environment - use in-memory MongoDB
-        try {
-          if (!mongoMemoryServer) {
-            log('Starting MongoDB Memory Server...', 'database');
-            mongoMemoryServer = await MongoMemoryServer.create();
-            log('MongoDB Memory Server started successfully', 'database');
-          }
-          uri = mongoMemoryServer.getUri();
-          log(`Using in-memory MongoDB at ${uri}`, 'database');
-        } catch (memErr) {
-          log(`Error starting MongoDB Memory Server: ${memErr}`, 'database');
-          // Fallback to remote MongoDB if memory server fails
-          uri = process.env.MONGODB_URI || '';
-          if (!uri) {
-            throw new Error('Failed to start in-memory DB and no MONGODB_URI provided');
-          }
-          log('Falling back to remote MongoDB connection', 'database');
-        }
+      // For this project, we'll always use the real MongoDB connection
+      // as we're migrating from PostgreSQL to MongoDB
+      let uri = MONGODB_URI;
+      
+      if (!uri) {
+        throw new Error('MONGODB_URI is not defined');
       }
+      
+      log(`Using MongoDB with connection URI: ${uri.substring(0, 20)}...`, 'database');
       
       await mongoose.connect(uri, {
         // Added options for better connection reliability

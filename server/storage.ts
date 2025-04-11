@@ -584,22 +584,19 @@ export class MemStorage implements IStorage {
   }
 }
 
-export class DatabaseStorage implements IStorage {
+export class MongoDBStorage implements IStorage {
   sessionStore: SessionStore;
 
   constructor() {
-    // Use MemoryStore instead of PostgresSessionStore to avoid session deserialization issues
+    // Use MemoryStore for session storage
     this.sessionStore = new MemoryStore({
       checkPeriod: 86400000 // prune expired entries every 24h
     });
     
-    /* 
-    // Commented out PostgresSessionStore until session issues are resolved
-    this.sessionStore = new PostgresSessionStore({
-      pool,
-      createTableIfMissing: true
+    // Initialize MongoDB connection
+    mongodb.connectToDatabase().catch(err => {
+      log(`Failed to connect to MongoDB on startup: ${err}`, 'mongodb-storage');
     });
-    */
   }
 
   // User methods
@@ -649,11 +646,38 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getOnlineReaders(): Promise<User[]> {
-    return await db.select().from(users)
-      .where(and(
-        eq(users.role, "reader"),
-        eq(users.isOnline, true)
-      ));
+    try {
+      log('Fetching online readers from MongoDB', 'storage');
+      const onlineReaders = await mongodb.User.find({ 
+        role: 'reader',
+        isOnline: true 
+      }).lean();
+      
+      // Convert MongoDB documents to User type
+      return onlineReaders.map(user => ({
+        id: parseInt(user._id.toString().substring(0, 8), 16), // Generate numeric ID from MongoDB ObjectId
+        username: user.username,
+        email: user.email,
+        password: user.password,
+        fullName: user.fullName || '',
+        profileImage: user.profileImage || null,
+        role: user.role as "client" | "reader" | "admin",
+        bio: user.bio || null,
+        specialties: user.specialties || null,
+        hourlyRate: user.hourlyRate || 0,
+        lastActive: user.updatedAt,
+        isOnline: user.isOnline,
+        ratingAvg: user.ratingAvg || 0,
+        reviewCount: user.reviewCount || 0,
+        createdAt: user.createdAt,
+        stripeCustomerId: user.stripeCustomerId || null,
+        stripeConnectId: user.stripeConnectId || null,
+        accountBalance: user.accountBalance || 0
+      }));
+    } catch (error) {
+      log(`Error fetching online readers from MongoDB: ${error}`, 'storage');
+      return [];
+    }
   }
   
   async getAllUsers(): Promise<User[]> {
@@ -741,7 +765,28 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getFeaturedProducts(): Promise<Product[]> {
-    return await db.select().from(products).where(eq(products.featured, true));
+    try {
+      log('Fetching featured products from MongoDB', 'storage');
+      const featuredProducts = await mongodb.Product.find({ featured: true }).lean();
+      
+      // Convert MongoDB documents to Product type
+      return featuredProducts.map(product => ({
+        id: parseInt(product._id.toString().substring(0, 8), 16), // Generate numeric ID from MongoDB ObjectId
+        name: product.name,
+        price: product.price,
+        description: product.description,
+        imageUrl: product.imageUrl,
+        category: product.category,
+        stock: product.inventory || 0,
+        featured: product.isFeatured,
+        stripeProductId: product.stripeProductId || null,
+        stripePriceId: product.stripePriceId || null,
+        createdAt: product.createdAt
+      }));
+    } catch (error) {
+      log(`Error fetching featured products from MongoDB: ${error}`, 'storage');
+      return [];
+    }
   }
 
   async updateProduct(id: number, productData: Partial<InsertProduct>): Promise<Product | undefined> {
@@ -817,7 +862,29 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getLivestreams(): Promise<Livestream[]> {
-    return await db.select().from(livestreams);
+    try {
+      log('Fetching livestreams from MongoDB', 'storage');
+      const allLivestreams = await mongodb.Livestream.find().lean();
+      
+      // Convert MongoDB documents to Livestream type
+      return allLivestreams.map(stream => ({
+        id: parseInt(stream._id.toString().substring(0, 8), 16), // Generate numeric ID from MongoDB ObjectId
+        userId: parseInt(stream.hostId.toString().substring(0, 8), 16),
+        title: stream.title,
+        description: stream.description || '',
+        status: stream.status as "scheduled" | "created" | "live" | "idle" | "ended",
+        thumbnailUrl: stream.thumbnailUrl || '',
+        viewerCount: stream.viewCount || 0,
+        roomId: stream.roomId || null,
+        createdAt: stream.createdAt,
+        startedAt: stream.startedAt || null,
+        endedAt: stream.endedAt || null,
+        scheduledFor: stream.scheduledAt || null
+      }));
+    } catch (error) {
+      log(`Error fetching livestreams from MongoDB: ${error}`, 'storage');
+      return [];
+    }
   }
 
   async getLivestreamsByUser(userId: number): Promise<Livestream[]> {
@@ -989,5 +1056,5 @@ export class DatabaseStorage implements IStorage {
   }
 }
 
-// Use DatabaseStorage instead of MemStorage for production
-export const storage = new DatabaseStorage();
+// Use MongoDBStorage instead of MemStorage for production
+export const storage = new MongoDBStorage();
