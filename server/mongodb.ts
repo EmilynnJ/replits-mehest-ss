@@ -17,15 +17,40 @@ export async function connectToDatabase() {
     if (mongoose.connection.readyState !== 1) {
       log('Connecting to MongoDB...', 'database');
       
-      // For this project, we'll always use the real MongoDB connection
-      // as we're migrating from PostgreSQL to MongoDB
-      let uri = MONGODB_URI;
+      // Try to use the real MongoDB connection first, but fall back to in-memory if it fails
+      let uri;
       
-      if (!uri) {
-        throw new Error('MONGODB_URI is not defined');
+      try {
+        // First try real MongoDB connection
+        uri = MONGODB_URI;
+        if (!uri) {
+          throw new Error('MONGODB_URI is not defined');
+        }
+        
+        log(`Attempting MongoDB connection with URI: ${uri.substring(0, 20)}...`, 'database');
+        
+        // Try connecting with a short timeout to fail fast
+        await mongoose.connect(uri, {
+          serverSelectionTimeoutMS: 5000, // Short timeout to fail fast
+        });
+        
+        log('MongoDB Atlas connection successful', 'database');
+      } catch (error) {
+        log(`MongoDB Atlas connection failed: ${error}. Falling back to in-memory MongoDB`, 'database');
+        
+        // Fall back to in-memory MongoDB
+        if (!mongoMemoryServer) {
+          log('Starting MongoDB Memory Server...', 'database');
+          mongoMemoryServer = await MongoMemoryServer.create();
+          log('MongoDB Memory Server started successfully', 'database');
+        }
+        
+        uri = mongoMemoryServer.getUri();
+        log(`Using in-memory MongoDB at ${uri}`, 'database');
+        
+        // Set flag to create sample data after connection
+        process.env.MONGODB_SEED_SAMPLE_DATA = 'true';
       }
-      
-      log(`Using MongoDB with connection URI: ${uri.substring(0, 20)}...`, 'database');
       
       await mongoose.connect(uri, {
         // Added options for better connection reliability
@@ -44,6 +69,11 @@ export async function connectToDatabase() {
       });
       
       log('MongoDB connection established successfully', 'database');
+      
+      // Seed sample data in in-memory database if needed
+      if (process.env.MONGODB_SEED_SAMPLE_DATA === 'true') {
+        await seedSampleData();
+      }
     }
     return mongoose.connection;
   } catch (error) {
@@ -65,6 +95,201 @@ export async function connectToDatabase() {
     }
     
     throw error;
+  }
+}
+
+// Sample data seeding for development
+async function seedSampleData() {
+  try {
+    log('Seeding sample data for development...', 'database');
+    
+    // Check if we already have data
+    const userCount = await User.countDocuments();
+    if (userCount > 0) {
+      log('Data already exists, skipping seed', 'database');
+      return;
+    }
+    
+    // Create users: clients, readers, and admin
+    const adminUser = await User.create({
+      username: 'admin',
+      email: 'admin@soulseer.app',
+      password: '$2b$10$K4nTjbGj9Y0xP0HIEwdXOOeDvgOXILf6j7vkdYfvZ3lM9i1U0Acja', // 'admin123'
+      fullName: 'Admin User',
+      role: 'admin',
+      profileImage: '/images/users/admin.jpg',
+      bio: 'System administrator',
+      isVerified: true,
+      isOnline: true
+    });
+    
+    // Create reader users
+    const readers = await User.create([
+      {
+        username: 'mysticmaya',
+        email: 'maya@soulseer.app',
+        password: '$2b$10$K4nTjbGj9Y0xP0HIEwdXOOeDvgOXILf6j7vkdYfvZ3lM9i1U0Acja', // 'password123'
+        fullName: 'Maya Johnson',
+        role: 'reader',
+        profileImage: '/images/users/maya.jpg',
+        bio: 'Tarot specialist with 10 years of experience in spiritual guidance.',
+        isVerified: true,
+        isOnline: true
+      },
+      {
+        username: 'cosmicalex',
+        email: 'alex@soulseer.app',
+        password: '$2b$10$K4nTjbGj9Y0xP0HIEwdXOOeDvgOXILf6j7vkdYfvZ3lM9i1U0Acja', // 'password123'
+        fullName: 'Alex Chen',
+        role: 'reader',
+        profileImage: '/images/users/alex.jpg',
+        bio: 'Astrologer and energy healer specializing in life path guidance.',
+        isVerified: true,
+        isOnline: true
+      },
+      {
+        username: 'intuitiveisabel',
+        email: 'isabel@soulseer.app',
+        password: '$2b$10$K4nTjbGj9Y0xP0HIEwdXOOeDvgOXILf6j7vkdYfvZ3lM9i1U0Acja', // 'password123'
+        fullName: 'Isabel Rodriguez',
+        role: 'reader',
+        profileImage: '/images/users/isabel.jpg',
+        bio: 'Medium with a gift for connecting with loved ones who have passed.',
+        isVerified: true,
+        isOnline: false
+      }
+    ]);
+    
+    // Create client users
+    const clients = await User.create([
+      {
+        username: 'client1',
+        email: 'client1@example.com',
+        password: '$2b$10$K4nTjbGj9Y0xP0HIEwdXOOeDvgOXILf6j7vkdYfvZ3lM9i1U0Acja', // 'password123'
+        fullName: 'Jamie Smith',
+        role: 'user',
+        profileImage: null,
+        bio: null,
+        isVerified: true,
+        isOnline: false
+      },
+      {
+        username: 'client2',
+        email: 'client2@example.com',
+        password: '$2b$10$K4nTjbGj9Y0xP0HIEwdXOOeDvgOXILf6j7vkdYfvZ3lM9i1U0Acja', // 'password123'
+        fullName: 'Taylor Brown',
+        role: 'user',
+        profileImage: null,
+        bio: null,
+        isVerified: true,
+        isOnline: false
+      }
+    ]);
+    
+    // Create products
+    const products = await Product.create([
+      {
+        name: 'Rose Quartz Crystal',
+        description: 'A beautiful rose quartz crystal for love and healing energy.',
+        price: 2499, // $24.99
+        imageUrl: '/images/products/rose-quartz.jpg',
+        category: 'Crystals',
+        inventory: 15,
+        isFeatured: true,
+        sellerId: readers[0]._id
+      },
+      {
+        name: 'Tarot Card Deck',
+        description: 'Premium tarot card deck with guidebook for beginners and experts.',
+        price: 3999, // $39.99
+        imageUrl: '/images/products/tarot-deck.jpg',
+        category: 'Divination',
+        inventory: 10,
+        isFeatured: true,
+        sellerId: readers[1]._id
+      },
+      {
+        name: 'Meditation Candle Set',
+        description: 'Set of 3 handcrafted meditation candles with essential oils.',
+        price: 2899, // $28.99
+        imageUrl: '/images/products/candles.jpg',
+        category: 'Meditation',
+        inventory: 20,
+        isFeatured: true,
+        sellerId: readers[2]._id
+      }
+    ]);
+    
+    // Create livestreams
+    const livestreams = await Livestream.create([
+      {
+        hostId: readers[0]._id,
+        title: 'Weekly Tarot Reading',
+        description: 'Join Maya for this week\'s tarot guidance session.',
+        status: 'scheduled',
+        scheduledAt: new Date(Date.now() + 86400000), // Tomorrow
+        thumbnailUrl: '/images/livestreams/tarot-session.jpg',
+        viewCount: 0,
+        roomId: 'room_' + Math.random().toString(36).substring(2, 15)
+      },
+      {
+        hostId: readers[1]._id,
+        title: 'Full Moon Meditation',
+        description: 'Harness the energy of the full moon with Alex.',
+        status: 'scheduled',
+        scheduledAt: new Date(Date.now() + 172800000), // Day after tomorrow
+        thumbnailUrl: '/images/livestreams/full-moon.jpg',
+        viewCount: 0,
+        roomId: 'room_' + Math.random().toString(36).substring(2, 15)
+      },
+      {
+        hostId: readers[2]._id,
+        title: 'Q&A: Connecting with Spirit Guides',
+        description: 'Isabel answers your questions about spirit guides and communication.',
+        status: 'live',
+        startedAt: new Date(),
+        thumbnailUrl: '/images/livestreams/spirit-guides.jpg',
+        viewCount: 12,
+        roomId: 'room_' + Math.random().toString(36).substring(2, 15)
+      }
+    ]);
+    
+    // Create readings
+    const readings = await Reading.create([
+      {
+        clientId: clients[0]._id,
+        readerId: readers[0]._id,
+        type: 'video',
+        status: 'completed',
+        notes: 'Focus on career questions',
+        rating: 5,
+        review: 'Amazing reading! Maya provided clear guidance for my career path.',
+        duration: 30,
+        totalAmount: 4500, // $45.00
+        roomId: 'session_' + Math.random().toString(36).substring(2, 15),
+        scheduledAt: new Date(Date.now() - 604800000), // 1 week ago
+        completedAt: new Date(Date.now() - 604800000 + 1800000),
+        clientNotes: 'Looking for guidance on a potential career change.'
+      },
+      {
+        clientId: clients[1]._id,
+        readerId: readers[1]._id,
+        type: 'chat',
+        status: 'scheduled',
+        notes: 'Relationship reading',
+        rating: null,
+        review: null,
+        duration: 0,
+        totalAmount: 0,
+        roomId: 'session_' + Math.random().toString(36).substring(2, 15),
+        scheduledAt: new Date(Date.now() + 86400000), // Tomorrow
+        clientNotes: 'Need advice on my current relationship.'
+      }
+    ]);
+    
+    log('Sample data seeded successfully!', 'database');
+  } catch (error) {
+    log(`Error seeding sample data: ${error}`, 'database');
   }
 }
 
@@ -403,6 +628,7 @@ function parseSetClause(setClause: string, params?: any[]): object {
   
   return updates;
 }
+
 
 // Export default connection function
 export default connectToDatabase;
