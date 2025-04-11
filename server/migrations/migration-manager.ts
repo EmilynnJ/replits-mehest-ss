@@ -2,8 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
-import { query } from '../database.js'; // Use query instead of sql for parameterized queries
-import { log } from '../vite.js';
+import { query } from '../mongodb'; // Using MongoDB compatibility layer
+import { log } from '../server-only';
 
 // ES Module alternative for __dirname
 const __filename = fileURLToPath(import.meta.url);

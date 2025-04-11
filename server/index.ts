@@ -1,7 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes.js";
 import { setupVite, serveStatic, log } from "./vite.js";
-import { initializeDatabase } from "./migrations/migration-manager.js";
+import { connectToDatabase } from "./mongodb";
 import { config } from "dotenv";
 import path from "path";
 import cors from "cors";
@@ -82,15 +82,15 @@ app.use((req, res, next) => {
   
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      // Initialize database before registering routes
-      await initializeDatabase();
-      log('Database initialized successfully', 'database');
+      // Connect to MongoDB database before registering routes
+      await connectToDatabase();
+      log('MongoDB connection established successfully', 'database');
       break;
     } catch (error) {
-      log(`Database initialization attempt ${attempt} failed: ${error}`, 'database');
+      log(`MongoDB connection attempt ${attempt} failed: ${error}`, 'database');
       
       if (attempt === MAX_RETRIES) {
-        log('All database initialization attempts failed. Exiting.', 'database');
+        log('All MongoDB connection attempts failed. Exiting.', 'database');
         process.exit(1);
       }
       
